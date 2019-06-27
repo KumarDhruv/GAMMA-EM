@@ -5,13 +5,20 @@
 #importing necessary packages
 import numpy as np
 from joblib import dump, load
+import time
 
 #Scikit Gaussian Process functions
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import PairwiseKernel, RBF, Product, ConstantKernel as C, RationalQuadratic as RQ, Matern, WhiteKernel
 
 #Scikit MultiOutput Regression class - not needed in the current version
-#from sklearn.multioutput import MultiOutputRegressor
+#from sklearn.multioutput import MultiOutputRegressor\
+
+
+#Scikit Metrics for manual R^2 score
+from sklearn.metrics import r2_score
+
+start = time.time()
 
 #load in input training data
 emsp_train = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCER ACRES\GAMMA-EM\sample_sets\em_sample_points200.npy") #address of set of sample parameter
@@ -21,11 +28,11 @@ gal_FeH_mean_train = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCE
 gal_FeH_std_train = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCER ACRES\GAMMA-EM\sample_sets\gal_FeH_std_200.npy")
 
 #load in input testing data
-emsp_test = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCER ACRES\sample_sets\GAMMA-EM\em_sample_points10000.npy") #set of sample parameter
+emsp_test = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCER ACRES\GAMMA-EM\sample_sets\em_sample_points10000.npy") #set of sample parameter
 #load in output testing data
-gal_Mstar_test = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCER ACRES\sample_sets\GAMMA-EM\gal_Mstar_10000.npy")
-gal_FeH_mean_test = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCER ACRES\sample_sets\GAMMA-EM\gal_FeH_mean_10000.npy")
-gal_FeH_std_test = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCER ACRES\sample_sets\GAMMA-EM\gal_FeH_std_10000.npy")
+gal_Mstar_test = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCER ACRES\GAMMA-EM\sample_sets\gal_Mstar_10000.npy")
+gal_FeH_mean_test = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCER ACRES\GAMMA-EM\sample_sets\gal_FeH_mean_10000.npy")
+gal_FeH_std_test = np.load(r"C:\Users\carli\Documents\Astrophysics General\iCER ACRES\GAMMA-EM\sample_sets\gal_FeH_std_10000.npy")
 
 #================================
 #First generation of the emulator
@@ -41,10 +48,11 @@ log_gal_Mstar_train = np.log10(gal_Mstar_train) #log base-10 form of the data to
 #Stellar mass emulators
 for i in range(len(gal_Mstar_train[0])):
     sigma_train_1[i] = np.log10(np.std(gal_Mstar_train[:,i]))
-    kern = C(sigma_train_2[i]**2) * RBF() * Matern() + WhiteKernel() #likely needs to be modified when new parameters are availabe
+    kern = C(sigma_train_1[i]**2) * RBF() * Matern() + WhiteKernel() #likely needs to be modified when new parameters are availabe
     em_Mstar_1.append(GaussianProcessRegressor(kernel=kern, n_restarts_optimizer=1))
     em_Mstar_1[i].fit(emsp_train,log_gal_Mstar_train[:,i])
     log_em_Mstar_pred_1[:,i], log_em_Mstar_pred_std_1[:,i] = em_Mstar_1[i].predict(emsp_test, return_std = True)
+    print 
 '''
 #Alternatively, could use MultiOutputRegressor, but that limits the information available for model analysis
 kern = C(sigma_train_2[i]**2) * RBF() * Matern() + WhiteKernel()
@@ -65,8 +73,8 @@ em_FeH_mean_pred_std = np.zeros([len(gal_FeH_mean_test),len(gal_FeH_mean_test[0]
 
 #Metallicity emulators                          
 for i in range(len(gal_FeH_mean_train[0])):
-    sigma_train[i] = np.std(gal_FeH_mean_train[:,i])
-    kern = C(sigma_train[i]**2) * RBF() * PairwiseKernel() #likely needs to be modified when new parameters are availabe
+    sigma_train_1[i] = np.std(gal_FeH_mean_train[:,i])
+    kern = C(sigma_train_1[i]**2) * RBF() * PairwiseKernel() #likely needs to be modified when new parameters are availabe
     em_FeH_mean.append(GaussianProcessRegressor(kernel=kern, n_restarts_optimizer=1))
     em_FeH_mean[i].fit(emsp_train,gal_FeH_mean_train[:,i])
     em_FeH_mean_pred[:,i], em_FeH_mean_pred_std[:,i] = em_FeH_mean[i].predict(emsp_test, return_std = True)
@@ -91,7 +99,7 @@ for i in range(len(em_FeH_mean.estimators_)):
 #=========================================
 #Development of 2nd generation of emulator
 #=========================================
-em_combo_std = log_em_Mstar_pred_std*em_FeH_mean_pred_std #combined standard deviation, equally weighted between outputs
+em_combo_std = log_em_Mstar_pred_1*em_FeH_mean_pred_std #combined standard deviation, equally weighted between outputs
 
 var_index = np.arange(0, 10000, 1).reshape(10000,1) #index count of the sample
 indexed_combo_std = np.append(em_combo_std, var_index, axis = 1) #puts an in-array index of standard deviation results matching each sample parameter set
@@ -243,6 +251,41 @@ for i in range(len(gal_FeH_mean_train_3[0])):
 dump(em_Mstar_3, 'stellar_mass_emulator.joblib')
 dump(em_FeH_mean_3, 'metallicity_emulator.joblib')
 
+r_2_1 = 0
+for i in range((len(gal_Mstar_train_2[0])-1)):
+    #print("Test sample " + str(i) + " : R^2 - "+ str(r2_score(np.log10(gal_Mstar_test_2[:,i]), log_em_Mstar_pred[:,i]))) #Test R^2
+    r_2_1 += r2_score(np.log10(gal_Mstar_test_3[:,i]), log_em_Mstar_pred_2[:,i])
+
+r_2_1 = r_2_1 / (len(gal_Mstar_train_3[0])-1)
+
+r_2_2 = 0
+for i in range((len(gal_Mstar_train_2[0])-1)):
+    #print("Test sample " + str(i) + " : R^2 - "+ str(r2_score(np.log10(gal_Mstar_test_2[:,i]), log_em_Mstar_pred_2[:,i]))) #Test R^2
+    r_2_2 += r2_score(np.log10(gal_Mstar_test_3[:,i]), log_em_Mstar_pred_3[:,i])
+
+r_2_2 = r_2_2 / (len(gal_Mstar_train_3[0])-1)
+
+print("Stellar mass R^2 of 2nd gen: " + str(r_2_1))
+print("Stellar mass R^2 of 3rd gen: " + str(r_2_2))
+
+r_2_1 = 0
+for i in range((len(gal_FeH_mean_train_2[0])-1)):
+    print("Test sample " + str(i) + " : R^2 - "+ str(r2_score(gal_FeH_mean_test_3[:,i], em_FeH_mean_pred_2[:,i]))) #Test R^2
+    r_2_1 += r2_score(gal_FeH_mean_test_3[:,i], em_FeH_mean_pred_2[:,i])
+
+r_2_1 = r_2_1 / (len(gal_FeH_mean_train_3[0])-1)
+
+r_2_2 = 0
+for i in range((len(gal_FeH_mean_train_2[0])-1)):
+    print("Test sample " + str(i) + " : R^2 - "+ str(r2_score(gal_FeH_mean_test_3[:,i], em_FeH_mean_pred_3[:,i]))) #Test R^2
+    r_2_2 += r2_score(gal_FeH_mean_test_3[:,i], em_FeH_mean_pred_3[:,i])
+r_2_2 = r_2_2 / (len(gal_FeH_mean_train_3[0])-1)
+
+print("FeH mean R^2 of 2nd gen: " + str(r_2_1))
+print("FeH mean R^2 of 3rd gen: " + str(r_2_2))
+
 #to load the emulator from disk, use this syntax
 #stellar_mass_em = load('stellar_mass_emulator.joblib')
 #metallicity_emulator_em = load('metallicity_emulator.joblib')
+
+print("Emulator creation and refinement total time: ".format(time.time()-start))
