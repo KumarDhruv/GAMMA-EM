@@ -125,7 +125,7 @@ var_range["mass_loading"] = [0.0,2.0]
 var_range["f_halo_to_gal_out"] = [0.0,1.0]
 var_range["nb_1a_per_m"] = [0.8e-3,1.2e-3]
 
-sampled_points = 20 #increase as going on with testing
+sampled_points = 10 #increase as going on with testing
 dimensions = len(var_range) #aka number of parameters
 
 comm.Barrier()
