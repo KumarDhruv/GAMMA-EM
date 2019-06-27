@@ -140,7 +140,7 @@ if comm.rank == 0:
     gal_Mstar = np.empty([sampled_points, num_gal])
     gal_FeH_mean = np.empty([sampled_points, num_gal])
     gal_FeH_std = np.empty([sampled_points, num_gal])
-    emsp_index = np.arange(sampled_points)
+    emsp_index = np.arange(sampled_points, dtype='float64')
     em_sample_points = []
     for i in range(0, sampled_points):
         j = 0
@@ -149,7 +149,10 @@ if comm.rank == 0:
         for key in var_range.keys():
             lhd[i][key] = lhd_temp[i][j]
             j += 1
-    np.save("em_sample_points"+str(sampled_points)+"_3.npy", em_sample_points)
+    for i in range(0, sampled_points):
+        for key in var_range.keys():
+            em_sample_points[i][key] = (lhd[i][key]*(var_range[key][1]))+var_range[key][0]
+    #np.save("em_sample_points"+str(sampled_points)+".npy", em_sample_points)
 else:
     lhd_temp = None
     lhd = None
@@ -162,16 +165,33 @@ else:
 
 #created on all processors
 loc_samples = int(sampled_points/comm.size)
-mini_emsp_index = np.empty([loc_samples])
+mini_emsp_index = np.zeros(loc_samples, dtype='float64')
 mini_gal_Mstar = np.empty([loc_samples, num_gal])
 mini_gal_FeH_mean = np.empty([loc_samples, num_gal])
 mini_gal_FeH_std = np.empty([loc_samples, num_gal])
 
+#comm.Barrier()
+
+#if comm.rank == 0:
+#    print("Before scatter:")
+#comm.Barrier()
+#print("Rank: " + str(comm.rank) + ", full index: " + str(emsp_index))
+#comm.Barrier()
+#print("Rank: " + str(comm.rank) + ", local index: " + str(mini_emsp_index))
+
+
 comm.Barrier()
-comm.bcast(em_sample_points)
+em_sample_points = comm.bcast(em_sample_points)
+#print("Rank: " + str(comm.rank) + ", " + str(em_sample_points))
 comm.Barrier()
 comm.Scatter(emsp_index, mini_emsp_index)
 comm.Barrier()
+
+#if comm.rank == 0:
+#    print("After scatter:")
+#comm.Barrier()
+#print("Rank: " + str(comm.rank) + ", local index: " + str(mini_emsp_index))
+
 
 #filename = "debug_statements_#"+str(comm.rank)
 
@@ -179,6 +199,7 @@ comm.Barrier()
 
 #each i represents a run of GAMMA
 sample_start = time.time()
+k = 0
 for i in np.nditer(mini_emsp_index):  
     print("GAMMA sample #: "+str(i))
     start = time.time()
@@ -188,14 +209,17 @@ for i in np.nditer(mini_emsp_index):
     gamma_kwargs = {"print_off":True, "C17_eta_z_dep":C17_eta_z_dep, \
                       "DM_outflow_C17":DM_outflow_C17, "t_star":t_star, \
                       "t_inflow":t_inflow, "sfe_m_dep":sfe_m_dep }
-
+    
     # Add the sampled parameters
     for key in var_range.keys():
-        gamma_kwargs[key] = copy.deepcopy(em_sample_points[i][key])
+        gamma_kwargs[key] = copy.deepcopy(em_sample_points[int(i)][key])
     
-    gamma_kwargs["sfe"] = get_input_sfe(em_sample_points[i]["sfe"],host_tree.m_DM_0, em_sample_points[i]["sfe_m_index"])
-    gamma_kwargs["mass_loading"] = get_input_mass_loading(em_sample_points[i]["mass_loading"], host_tree.m_DM_0, em_sample_points[i]["exp_ml"])
-
+    gamma_kwargs["sfe"] = get_input_sfe(em_sample_points[int(i)]["sfe"],host_tree.m_DM_0, em_sample_points[int(i)]["sfe_m_index"])
+    gamma_kwargs["mass_loading"] = get_input_mass_loading(em_sample_points[int(i)]["mass_loading"], host_tree.m_DM_0, em_sample_points[int(i)]["exp_ml"])
+    
+    print("Index: " + str(mini_emsp_index))
+    print("Parameters: ")
+    print(gamma_kwargs)
     #debug.write(str(gamma_kwargs)+"\n")
     #debug.write("\n")
     # Run GAMMA for the host tree
@@ -204,8 +228,8 @@ for i in np.nditer(mini_emsp_index):
     # Run GAMMA for the every sub-trees 
     gsubs = []
     for i_sub in range(len(sub_trees)):
-        gamma_kwargs_1["sfe"] = get_input_sfe(em_sample_points[i]["sfe"], sub_trees[i_sub].m_DM_0, em_sample_points[i]["sfe_m_index"])
-        gamma_kwargs_1["mass_loading"] = get_input_mass_loading(em_sample_points[i]["mass_loading"], sub_trees[i_sub].m_DM_0,  em_sample_points[i]["exp_ml"])
+        gamma_kwargs["sfe"] = get_input_sfe(em_sample_points[int(i)]["sfe"], sub_trees[i_sub].m_DM_0, em_sample_points[int(i)]["sfe_m_index"])
+        gamma_kwargs["mass_loading"] = get_input_mass_loading(em_sample_points[int(i)]["mass_loading"], sub_trees[i_sub].m_DM_0, em_sample_points[int(i)]["exp_ml"])
         gsubs.append(run_gamma(sub_trees[i_sub], mvir_thresh, gamma_kwargs, SSPs_in))
 
     comm.Barrier()
@@ -215,34 +239,39 @@ for i in np.nditer(mini_emsp_index):
     # add output processing here and put it in an array where host galaxy is very last entry in each row, ie. x[i][-1] should be the host galaxy value
     
     len_gsubs = len(gsubs)
-    
-    # Extract the final (uncorrected) stellar mass of each tree
+    #print("Rank :" +str(comm.rank) +", " +str(i))
+    #Extract the final (uncorrected) stellar mass of each tree
     for j in range(len_gsubs):
-        mini_gal_Mstar[i][j] = calc.mstar_evolution(gsubs[j])[-1]#check on this output
-    mini_gal_Mstar[i][-1] = calc.mstar_evolution(ghost)[-1]
-
+        mini_gal_Mstar[k][j] = calc.mstar_evolution(gsubs[j])[-1]#check on this output
+    mini_gal_Mstar[k][-1] = calc.mstar_evolution(ghost)[-1]
+    #print("Rank: " + str(comm.rank) + ", " + str(mini_gal_Mstar[k]))
+   
     comm.Barrier()
     # Extract the metallicity distribution function (MDF) of each tree
     # There might be warnings, but it is ok
-    host_mdf = calc.mdf(ghost)
+    host_mdf = calc.mdf(ghost) #this produces a second array of NaN values, not known why.
     sub_mdfs = [calc.mdf(g) for g in gsubs]
     comm.Barrier()
 
     # Extract the average and standard deviation of metallicity [Fe/H] of each tree
-    subs_FeH_mean = [caga.find_distribution_mean(*sub_mdf) for sub_mdf in sub_mdfs]
+    subs_FeH_mean = [caga.find_distribution_mean(*sub_mdf) for sub_mdf in sub_mdfs] #failing here
     subs_FeH_std = [caga.find_distribution_std(*sub_mdf) for sub_mdf in sub_mdfs]
     comm.Barrier()
 
     for j in range(len_gsubs):
-        mini_gal_FeH_mean[i][j] = subs_FeH_mean[j]
-        mini_gal_FeH_std[i][j] = subs_FeH_std[j]
-    mini_gal_FeH_mean[i][-1] = caga.find_distribution_mean(*host_mdf)
-    mini_gal_FeH_std[i][-1] = caga.find_distribution_std(*host_mdf)
+        mini_gal_FeH_mean[k][j] = subs_FeH_mean[j]
+        mini_gal_FeH_std[k][j] = subs_FeH_std[j]
+    mini_gal_FeH_mean[k][-1] = caga.find_distribution_mean(*host_mdf)
+    mini_gal_FeH_std[k][-1] = caga.find_distribution_std(*host_mdf)
     
-    print("Total GAMMA sample #: "+str(comm.rank)+"."+str(i)+"run time is {:.1f}".format(time.time()-start))
+    print("Rank: " + str(comm.rank) + ", " + str(caga.find_distribution_mean(*host_mdf)))
+
+    print("Total GAMMA sample #: "+str(comm.rank)+"."+str(i)+". Run time is {:.1f}".format(time.time()-start))
     comm.Barrier()
+    k +=1
+   
     
-print("Total sampling #:"+str(comm.rank)+"."+str(i)+"time is {:.1f}".format(time.time()-sample_start))
+print("Total sampling #:"+str(comm.rank)+"."+str(i)+". Run time is {:.1f}".format(time.time()-sample_start))
 
 comm.Barrier()
 comm.Gather(mini_gal_Mstar, gal_Mstar)
@@ -250,9 +279,9 @@ comm.Gather(mini_gal_FeH_mean, gal_FeH_mean)
 comm.Gather(mini_gal_FeH_std, gal_FeH_std)
 
 if comm.rank == 0:
-    np.save("gal_Mstar_"+str(sampled_points)+"_3.npy", gal_Mstar)
-    np.save("gal_FeH_mean_"+str(sampled_points)+"_3.npy", gal_FeH_mean)
-    np.save("gal_FeH_std_"+str(sampled_points)+"_3.npy", gal_FeH_std)
+    np.save("gal_Mstar_"+str(sampled_points)+".npy", gal_Mstar)
+    np.save("gal_FeH_mean_"+str(sampled_points)+".npy", gal_FeH_mean)
+    np.save("gal_FeH_std_"+str(sampled_points)+".npy", gal_FeH_std)
 
 #debug.close()
 
@@ -277,3 +306,4 @@ plt.legend(bbox_to_anchor=(-2,4.04,1.5,1), loc="lower left",
 
 plt.show()
 '''
+
