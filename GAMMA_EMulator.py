@@ -4,7 +4,7 @@
 
 #importing necessary packages
 import numpy as np
-from joblib import dump, load
+from joblib import dump
 import time
 import os
 
@@ -277,7 +277,7 @@ print()
 print("Writing second generation of emulator models to disk")
 #writes the emulator models to disk after finishing model refinement
 dump(em_Mstar_2, 'stellar_mass_emulator.joblib')
-dump(em_FeH_mean_2, 'metallicity_emulator.joblib')
+dump(em_FeH_mean_2, 'metallicity_emulator.pickle')
 
 #to load the emulator from disk, use this syntax
 #stellar_mass_em = load('stellar_mass_emulator.joblib')
