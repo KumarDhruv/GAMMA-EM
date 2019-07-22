@@ -1,0 +1,17 @@
+#!/bin/bash --login
+########## SBATCH Lines for Resource Request ##########
+#SBATCH --time=00:15:00             # limit of wall clock time - how long the job will run (same as -t)
+#SBATCH --ntasks=1                  # number of tasks - how many tasks (nodes) that you require (same as -n)
+#SBATCH --cpus-per-task=1           # number of CPUs (or cores) per task (same as -c)
+#SBATCH --mem-per-cpu=4G            # memory required per allocated CPU (or core)
+########## Command Lines to Run ##########
+
+module purge
+module load GCC/6.4.0-2.28 OpenMPI/2.1.2
+export PATH=$HOME/anaconda/bin:$PATH
+
+cd /mnt/home/f0008572/Documents/GAMMA-EM_Reduced
+
+python GAMMA_EMulator.py
+
+scontrol show job $SLURM_JOB_ID

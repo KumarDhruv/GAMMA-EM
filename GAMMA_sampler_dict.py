@@ -1,4 +1,3 @@
-#BC
 # Import python modules
 import numpy as np
 import matplotlib
@@ -6,19 +5,19 @@ import matplotlib.pyplot as plt
 import copy
 import imp
 import os
+import os.path
 import glob
 import sys
 import time
 from pyDOE import *
 from mpi4py import MPI
 
-#BC
-# Define path to the codes
+# Define path to the chemical evolution packages - change as needed
 sygmadir = '/mnt/home/f0008572/Chem_Evol_Code/NuPyCEE'
 jinapydir = '/mnt/home/f0008572/Chem_Evol_Code/JINAPyCEE'
 cagadir = '/mnt/home/f0008572/Chem_Evol_Code/caga/caga'
 
-# Import the codes
+# Import the chemical evolution packages
 caga  = imp.load_source('caga', cagadir+'/caga.py')
 calc  = imp.load_source('calc', cagadir+'/calc.py')
 plot  = imp.load_source('plot', cagadir+'/plot.py')
@@ -26,15 +25,15 @@ sygma = imp.load_source('sygma', sygmadir+'/sygma.py')
 omega = imp.load_source('omega', sygmadir+'/omega.py')
 gamma = imp.load_source('gamma', jinapydir+'/gamma.py')
 
+#initialize parallel processing
 comm = MPI.COMM_WORLD
-
 if comm.rank == 0:
     print("-"*78)
     print(" Running on %d cores" % comm.size)
     print("-"*78)
 
 comm.Barrier()
-#BC
+
 # Get the file name for the host tree (Milky-Way-like halo)
 hostID = 686
 hostfname = cagadir+"/../notebooks/H1725272_LX11/rsid{}.npy".format(hostID)
@@ -57,14 +56,13 @@ for i in range(len(subfnames)):
     print(subfnames[i])
 '''
 subfnames.remove(hostfname)
-print(len(subfnames),'sub-trees found')
+if comm.rank == 0:
+    print(len(subfnames),'sub-trees found')
 
-#BC
 # Load the GAMMA input arrays for each tree
 host_tree = caga.gamma_tree.load(hostfname)
 sub_trees = [caga.gamma_tree.load(subfname) for subfname in subfnames]
 
-#BC
 # Precalculate stellar populations to accelerate GAMMA computing time
 SSPs_in = caga.precompute_ssps()
 
@@ -79,8 +77,7 @@ def run_gamma(gt, mvir_thresh, gamma_kwargs, SSPs_in):
     g = gamma.gamma(**kwargs)
     return g
 
-# Function to return the correctly-scaled parameters
-# for trees, as a function of their final dark matter mass
+# Function to return the correctly-scaled parameters for trees, as a function of their final dark matter mass
 def get_input_sfe(sfe, m_DM_final, sfe_m_index):
     print(sfe)
     return sfe / (m_DM_final / m_DM_0_ref)**sfe_m_index
@@ -89,27 +86,24 @@ def get_input_mass_loading(mass_loading, m_DM_final, exp_ml):
     c_eta = mass_loading * m_DM_0_ref**(exp_ml/3.0)
     return c_eta * m_DM_final**(-exp_ml/3.0)
 
-#BC
 # Parameters that SHOULD NOT be modified
-# They are to activate certain parts of the code
-# to accept the parameters mentionned above
+# They are to activate certain parts of the code  to accept the parameters mentioned above
 C17_eta_z_dep = False
 DM_outflow_C17 = True
 sfe_m_dep = True
 t_star = -1
 t_inflow = -1
 
-# Set the dark matter halo at redshift 0 where
-# the parameters will be refering to.
+# Set the dark matter halo at redshift 0 where the parameters will be refering to.
 # SHOULD NOT be modified
 m_DM_0_ref = 1.0e12
 
 
 # Minimium virial halo mass below which no star formation can occur
-# This will likely disapear soon, so should not be part of the Gaussian process
+# This will likely disapear soon
 mvir_thresh = 3e7
 
-#variable editing and range specification - dictionary
+
 # Parameters to be sampled
 # var_range['dictionary_key'][0] -- minimum parameter value
 # var_range['dictionary_key'][1] -- range (max - min)
@@ -125,7 +119,7 @@ var_range["mass_loading"] = [0.0,2.0]
 var_range["f_halo_to_gal_out"] = [0.0,1.0]
 var_range["nb_1a_per_m"] = [0.8e-3,1.2e-3]
 
-sampled_points = 10 #increase as going on with testing
+sampled_points = 10000 #change to number of points desired
 dimensions = len(var_range) #aka number of parameters
 
 comm.Barrier()
@@ -134,6 +128,8 @@ comm.Barrier()
 num_gal = len(sub_trees)+1
 
 if comm.rank == 0:
+    #creating necessary empty arrays and lists
+    #note - emsp stands for emulator sample points
     lhd_temp= lhs(dimensions, samples=sampled_points)
     lhd = []
     emsp_gather = np.empty([sampled_points, dimensions])
@@ -142,6 +138,7 @@ if comm.rank == 0:
     gal_FeH_std = np.empty([sampled_points, num_gal])
     emsp_index = np.arange(sampled_points, dtype='float64')
     em_sample_points = []
+    #generates latin hypercube values between 0 and 1
     for i in range(0, sampled_points):
         j = 0
         lhd.append({})
@@ -149,11 +146,17 @@ if comm.rank == 0:
         for key in var_range.keys():
             lhd[i][key] = lhd_temp[i][j]
             j += 1
+    #scales latin hypercube values to the range of each parameter
     for i in range(0, sampled_points):
         for key in var_range.keys():
             em_sample_points[i][key] = (lhd[i][key]*(var_range[key][1]))+var_range[key][0]
-    #np.save("em_sample_points"+str(sampled_points)+".npy", em_sample_points)
+    #saves the sample points
+    if not os.path.isfile(cwd+"/samples_GAMMA/em_sample_points"+str(sampled_points)+".npy"):
+        np.save(cwd+"/samples_GAMMA/em_sample_points"+str(sampled_points)+".npy", em_sample_points)
+    else:
+        np.save(cwd+"/samples_GAMMA/em_sample_points"+str(sampled_points)+"_2.npy", em_sample_points)
 else:
+    #mpi4py gets upset and mishandles things if these aren't here
     lhd_temp = None
     lhd = None
     emsp_gather = None
@@ -163,13 +166,15 @@ else:
     em_sample_points = None
     emsp_index = None
 
-#created on all processors
+#containers for recieving scattered values created on all processors
 loc_samples = int(sampled_points/comm.size)
 mini_emsp_index = np.zeros(loc_samples, dtype='float64')
+#containers for pre-gather GAMMA results
 mini_gal_Mstar = np.empty([loc_samples, num_gal])
 mini_gal_FeH_mean = np.empty([loc_samples, num_gal])
 mini_gal_FeH_std = np.empty([loc_samples, num_gal])
 
+#debugging code
 #comm.Barrier()
 
 #if comm.rank == 0:
@@ -180,22 +185,19 @@ mini_gal_FeH_std = np.empty([loc_samples, num_gal])
 #print("Rank: " + str(comm.rank) + ", local index: " + str(mini_emsp_index))
 
 
+#broadcast the array of emulator sample point dictionaries and scatters the index to the points
 comm.Barrier()
 em_sample_points = comm.bcast(em_sample_points)
-#print("Rank: " + str(comm.rank) + ", " + str(em_sample_points))
 comm.Barrier()
 comm.Scatter(emsp_index, mini_emsp_index)
 comm.Barrier()
 
+#debugging code
 #if comm.rank == 0:
 #    print("After scatter:")
 #comm.Barrier()
 #print("Rank: " + str(comm.rank) + ", local index: " + str(mini_emsp_index))
 
-
-#filename = "debug_statements_#"+str(comm.rank)
-
-#debug = open(filename,"a")
 
 #each i represents a run of GAMMA
 sample_start = time.time()
@@ -217,11 +219,6 @@ for i in np.nditer(mini_emsp_index):
     gamma_kwargs["sfe"] = get_input_sfe(em_sample_points[int(i)]["sfe"],host_tree.m_DM_0, em_sample_points[int(i)]["sfe_m_index"])
     gamma_kwargs["mass_loading"] = get_input_mass_loading(em_sample_points[int(i)]["mass_loading"], host_tree.m_DM_0, em_sample_points[int(i)]["exp_ml"])
     
-    print("Index: " + str(mini_emsp_index))
-    print("Parameters: ")
-    print(gamma_kwargs)
-    #debug.write(str(gamma_kwargs)+"\n")
-    #debug.write("\n")
     # Run GAMMA for the host tree
     ghost = run_gamma(host_tree, mvir_thresh, gamma_kwargs, SSPs_in)
     comm.Barrier()
@@ -236,74 +233,50 @@ for i in np.nditer(mini_emsp_index):
     #========================
     ## Extraction of outputs
     #========================
-    # add output processing here and put it in an array where host galaxy is very last entry in each row, ie. x[i][-1] should be the host galaxy value
+    # add additional output processing here and put it in an array where host galaxy is very last entry in each row, ie. x[i][-1] should be the host galaxy value
     
     len_gsubs = len(gsubs)
     #print("Rank :" +str(comm.rank) +", " +str(i))
     #Extract the final (uncorrected) stellar mass of each tree
     for j in range(len_gsubs):
-        mini_gal_Mstar[k][j] = calc.mstar_evolution(gsubs[j])[-1]#check on this output
+        mini_gal_Mstar[k][j] = calc.mstar_evolution(gsubs[j])[-1]
     mini_gal_Mstar[k][-1] = calc.mstar_evolution(ghost)[-1]
     #print("Rank: " + str(comm.rank) + ", " + str(mini_gal_Mstar[k]))
    
     comm.Barrier()
     # Extract the metallicity distribution function (MDF) of each tree
     # There might be warnings, but it is ok
-    host_mdf = calc.mdf(ghost) #this produces a second array of NaN values, not known why.
+    host_mdf = calc.mdf(ghost)
     sub_mdfs = [calc.mdf(g) for g in gsubs]
     comm.Barrier()
 
     # Extract the average and standard deviation of metallicity [Fe/H] of each tree
-    subs_FeH_mean = [caga.find_distribution_mean(*sub_mdf) for sub_mdf in sub_mdfs] #failing here
+    subs_FeH_mean = [caga.find_distribution_mean(*sub_mdf) for sub_mdf in sub_mdfs]
     subs_FeH_std = [caga.find_distribution_std(*sub_mdf) for sub_mdf in sub_mdfs]
     comm.Barrier()
-
+    
+    #Set GAMMA results into result arrays to be gathered
     for j in range(len_gsubs):
         mini_gal_FeH_mean[k][j] = subs_FeH_mean[j]
         mini_gal_FeH_std[k][j] = subs_FeH_std[j]
     mini_gal_FeH_mean[k][-1] = caga.find_distribution_mean(*host_mdf)
     mini_gal_FeH_std[k][-1] = caga.find_distribution_std(*host_mdf)
-    
-    print("Rank: " + str(comm.rank) + ", " + str(caga.find_distribution_mean(*host_mdf)))
 
     print("Total GAMMA sample #: "+str(comm.rank)+"."+str(i)+". Run time is {:.1f}".format(time.time()-start))
     comm.Barrier()
     k +=1
    
-    
 print("Total sampling #:"+str(comm.rank)+"."+str(i)+". Run time is {:.1f}".format(time.time()-sample_start))
 
+#Gather the results into one array
 comm.Barrier()
 comm.Gather(mini_gal_Mstar, gal_Mstar)
 comm.Gather(mini_gal_FeH_mean, gal_FeH_mean)
 comm.Gather(mini_gal_FeH_std, gal_FeH_std)
 
+
+#saving sample point results
 if comm.rank == 0:
-    np.save("gal_Mstar_"+str(sampled_points)+".npy", gal_Mstar)
-    np.save("gal_FeH_mean_"+str(sampled_points)+".npy", gal_FeH_mean)
-    np.save("gal_FeH_std_"+str(sampled_points)+".npy", gal_FeH_std)
-
-#debug.close()
-
-'''
-j = 0
-fig, ax = plt.subplots(2, 5, sharex='col', sharey='row')
-for i in range(1):
-    for k in range(2):
-        ax[i, k].errorbar(gal_Mstar[j][:-1], gal_FeH_mean[j][:-1], yerr=gal_FeH_std[j][:-1], fmt='o', label='sub-trees')
-        ax[i, k].errorbar(gal_Mstar[j][-1], gal_FeH_mean[j][-1], yerr=gal_FeH_std[j][-1], fmt='o', label='host-tree')
-        ax[i, k].set_xscale('log')
-        j += 1
-
-plt.legend(loc='right')
-#plt.xscale('log')
-fig.text(0.5, 0.03, '$M_\star$ [M$_\odot$]', ha='center', va='center')
-fig.text(0.06, 0.5, '[Fe/H]', ha='center', va='center', rotation='vertical')
-fig.subplots_adjust(hspace=0,wspace = 0)
-fig.suptitle('Metallicity [Fe/H] vs Stellar Mass [M$_\odot$]')
-plt.legend(bbox_to_anchor=(-2,4.04,1.5,1), loc="lower left",
-                mode="expand", borderaxespad=0, ncol=2)
-
-plt.show()
-'''
-
+    np.save("/samples_GAMMA/gal_Mstar_"+str(sampled_points)+".npy", gal_Mstar)
+    np.save("/samples_GAMMA/gal_FeH_mean_"+str(sampled_points)+".npy", gal_FeH_mean)
+    np.save("/samples_GAMMA/gal_FeH_std_"+str(sampled_points)+".npy", gal_FeH_std)

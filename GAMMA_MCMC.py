@@ -1,34 +1,60 @@
 import numpy as np
 import os
-os.environ['QT_QPA_PLATFORM']='offscreen'
 import sys
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.linear_model import LinearRegression as LR
+from sklearn.metrics import mean_squared_error as mse
 from joblib import dump, load
-import emcee
+import emcee #version 2.2.x
 from emcee.utils import MPIPool
 import corner
 import matplotlib
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+import math
+import copy
 
 cwd = os.getcwd()
 
 #emulator models (stand in for actual GAMMA model)
 #4 sec to load in
-stellar_mass_em = load(cwd+"/stellar_mass_emulator.joblib")
-metallicity_em = load(cwd+"/metallicity_emulator.joblib")
+stellar_mass_em = load(cwd+"/Emulator_results/stellar_mass_emulator.joblib")
+metallicity_em = load(cwd+"/Emulator_results/metallicity_emulator.joblib")
 
+#IMPORTANT NOTE: should not try to do print statements with the following syntax, otherwise code will seem to be running when it's not
+#with MPIPool() as pool:
+#    if pool.is_master():
+#        print("MCMC run")
 print("Emulators loaded in")
 
-obs = np.loadtxt(open(cwd+"/Observations/McConnachie Paper/McConnahie Metallicity and Mstar values.csv", "rb"), delimiter=",", skiprows=1, usecols = (0,2,3,4))
-obs_Mstar = np.array(obs[:,1])
+#load in training emulator sample points for count of parameters
+emsp_dict = np.load(cwd+"/samples_GAMMA/em_sample_points200.npy")
+emsp = np.zeros([len(emsp_dict), len(emsp_dict[0])])
+i = 0
+for i in range(len(emsp_dict)):
+    j = 0
+    for key in emsp_dict[0].keys():
+        emsp[i,j] = copy.deepcopy(emsp_dict[i][key])
+        j += 1
+dimcount = len(emsp[0])
+
+#load in observational data
+obs = np.loadtxt(open(cwd+"/Observations/Metallicity_Mstar_values.csv", "rb"), delimiter=",", skiprows=1, usecols = (0,2,3,4))
+obs_Mstar = np.array(np.log10(obs[:,1]))
 obs_FeH = obs[:,2]
 obs_FeH_error = obs[:,3]
-var_FeH = np.mean(obs_FeH_error)**2
 
+#find line of best fit through the observation points
 obs_fit = LR().fit(obs_Mstar.reshape(-1,1),obs_FeH)
-var_range = np.zeros([10,2]) # should eventually pull this from GAMMA sampler
+obs_pred_FeH = obs_fit.predict(obs_Mstar.reshape(-1,1))
+#error from the McConnachie paper, then the mean squared error around the line of best fit
+sys_var_FeH = np.mean(obs_FeH_error)**2
+reg_var_FeH = mse(obs_FeH, obs_pred_FeH)
+
+print("Observations loaded in")
+
+#specify variable ranges
+var_range = np.zeros([dimcount,2]) # should eventually pull the ranges from GAMMA sampler script
 var_range[0] = [0.0,2.0]
 var_range[1] = [1.0,10.0]
 var_range[2] = [-1.0,1.0]
@@ -40,69 +66,53 @@ var_range[7] = [0.0,2.0]
 var_range[8] = [0.0,1.0]
 var_range[9] = [.0008,.002]
 
-print("Observations loaded in")
 
 #log-likelihood function
 #calculate log_prob between APOGEE observation and model results
-
-def log_red_chi_2(position,ndim):
+#DOES NOT currently include the host galaxy in the fit
+def log_red_chi_2(position):
     for i in range(len(var_range)):
         if not var_range[i][0] < position[i] < var_range[i][1]:
             return -np.inf
-    calc_Mstar = np.zeros([len(stellar_mass_em)])
-    calc_FeH = np.zeros([len(stellar_mass_em)])
-    obs_FeH = np.zeros([len(stellar_mass_em)])
-    pos = np.array(position)
-    print(pos)
-    for i in range(len(stellar_mass_em)):
+    calc_Mstar = np.zeros([len(stellar_mass_em)-1]) #Change len(stellar_mass_em)-1 to len(stellar_mass_em) to include host galaxy
+    calc_FeH = np.zeros([len(stellar_mass_em)-1]) #see above
+    obs_FeH = np.zeros([len(stellar_mass_em)-1]) #see above
+    pos = np.array(position) #sklearn won't take in the position array unless it's been wrapped in another array
+    for i in range(len(stellar_mass_em)-1):
         calc_Mstar[i] = stellar_mass_em[i].predict(pos.reshape(1,-1))
         calc_FeH[i] = metallicity_em[i].predict(pos.reshape(1,-1))
         obs_FeH[i] = obs_fit.predict(calc_Mstar[i].reshape(1,-1))
-    chi_2_FeH = np.sum(((obs_FeH-calc_FeH)**2/(np.var(obs_FeH-calc_FeH)+var_FeH)))
-    red_chi_2_FeH = chi_2_FeH/ndim
-    return float(red_chi_2_FeH)
+    chi_2_FeH = -0.5*(np.sum(((obs_FeH-calc_FeH)**2/(reg_var_FeH+sys_var_FeH))))
+    return float(chi_2_FeH)
 
 print("Begin MCMC run")
 
+#begins MCMC run in parallel
 with MPIPool() as pool:
     if not pool.is_master():
         pool.wait()
         sys.exit(0)
-    #parameters to fit - eventually should pull this from the GAMMA-EM sampling script
-    #these starting values are just about the average of the current proposed range of values
-    #t_ff_index, f_t_ff, sfe_m_index, sfe, f_dyn, t_sf_z_dep, exp_ml, mass_loading, f_halo_to_gal_out, nb_1a_per_m
-    start = np.array([1.0,5.5,0.1,0.055,0.3,1.0,1.0,1.0,0.5, 1.0e-3])
-    
-    #number of parameters and walkers, and their starting point
-    ndim, nwalkers = len(start), 150
-    steps = 8000
+   #these starting values are just about the average of the current proposed range of values
+    start = np.zeros((dimcount,))
+    for i in range(len(start)):
+        start[i] = (var_range[i][0]+var_range[i][1])/2
+    #number of parameters and walkers,
+    ndim, nwalkers, steps  = dimcount, 200, 50000
+    #spreads walkers out into small ball
     pos = [start + 1e-4*np.random.randn(ndim) for i in range(nwalkers)]
-    
-    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_red_chi_2, args=[ndim],pool=pool)
+    if pool.is_master():
+        print("Walkers: "+str(nwalkers)+", Steps per Walker: "+str(steps))
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_red_chi_2, pool=pool)
     sampler.run_mcmc(pos, steps)
-    
 print("Finished MCMC run")
-flat_samples = sampler.chain[:, 1000:, :].reshape((-1, ndim))
-chain_name = str(nwalkers)+"w"+str(steps)+"s.joblib"
-dump(flat_samples, chain_name)    
-#figure analysis
+
+
+#saving samples, likelihoods, and the walker's acceptance fractions
+samples = sampler.chain[:, :, :].reshape((-1, ndim))
+name = str(nwalkers)+"w"+str(steps)+"s"
+dump(samples, cwd+"/MCMC_results/samples_"+str(name)+".joblib")
 likelihood = sampler.lnprobability
-plt.plot(likelihood).savefig("MCMC-lnlikelihood.png")
-
-plt.clf()
-
-labels=["t_ff_index", "f_t_ff", "sfe_m_index", "sfe", "f_dyn", "t_sf_z_dep", "exp_ml", "mass_loading", "f_halo_to_gal_out", "nb_1a_per_m"]
-
-fig, axes = plt.subplots(10, 1, sharex=True, figsize=(8, 9))
-for i in range(len(axes)):
-    axes[i].plot(sampler.chain[:, 1000:, i].T, color="k", alpha=0.4)
-    axes[i].yaxis.set_major_locator(MaxNLocator(5))
-    axes[i].set_ylabel(labels[i])
-
-fig.tight_layout(h_pad=0.0)
-fig.savefig("MCMC-time.png")
-
-fig = corner.corner(flat_samples)
-print("Figure created")    
-
-fig.savefig("MCMC-VarValues.png")
+dump(likelihood, cwd+"/MCMC_results/likelihood_"+str(name)+".joblib")
+af = open(cwd+"/MCMC_results/acceptance_frac_"+str(name)+".txt", "w+")
+af.write(str(sampler.acceptance_fraction))
+af.close()
