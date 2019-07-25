@@ -97,7 +97,7 @@ with MPIPool() as pool:
     for i in range(len(start)):
         start[i] = (var_range[i][0]+var_range[i][1])/2
     #number of parameters and walkers,
-    ndim, nwalkers, steps  = dimcount, 200, 50000
+    ndim, nwalkers, steps  = dimcount, 200, 5000
     #spreads walkers out into small ball
     pos = [start + 1e-4*np.random.randn(ndim) for i in range(nwalkers)]
     if pool.is_master():

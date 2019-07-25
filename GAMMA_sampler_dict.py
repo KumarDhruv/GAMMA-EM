@@ -12,6 +12,8 @@ import time
 from pyDOE import *
 from mpi4py import MPI
 
+cwd = os.getcwd()
+
 # Define path to the chemical evolution packages - change as needed
 sygmadir = '/mnt/home/f0008572/Chem_Evol_Code/NuPyCEE'
 jinapydir = '/mnt/home/f0008572/Chem_Evol_Code/JINAPyCEE'
@@ -79,10 +81,8 @@ def run_gamma(gt, mvir_thresh, gamma_kwargs, SSPs_in):
 
 # Function to return the correctly-scaled parameters for trees, as a function of their final dark matter mass
 def get_input_sfe(sfe, m_DM_final, sfe_m_index):
-    print(sfe)
     return sfe / (m_DM_final / m_DM_0_ref)**sfe_m_index
 def get_input_mass_loading(mass_loading, m_DM_final, exp_ml):
-    print(mass_loading)
     c_eta = mass_loading * m_DM_0_ref**(exp_ml/3.0)
     return c_eta * m_DM_final**(-exp_ml/3.0)
 
@@ -277,6 +277,11 @@ comm.Gather(mini_gal_FeH_std, gal_FeH_std)
 
 #saving sample point results
 if comm.rank == 0:
-    np.save("/samples_GAMMA/gal_Mstar_"+str(sampled_points)+".npy", gal_Mstar)
-    np.save("/samples_GAMMA/gal_FeH_mean_"+str(sampled_points)+".npy", gal_FeH_mean)
-    np.save("/samples_GAMMA/gal_FeH_std_"+str(sampled_points)+".npy", gal_FeH_std)
+    if not os.path.isfile(cwd+"/samples_GAMMA/gal_Mstar_"+str(sampled_points)+".npy"):
+        np.save(cwd+"/samples_GAMMA/gal_Mstar_"+str(sampled_points)+".npy", gal_Mstar)
+        np.save(cwd+"/samples_GAMMA/gal_FeH_mean_"+str(sampled_points)+".npy", gal_FeH_mean)
+        np.save(cwd+"/samples_GAMMA/gal_FeH_std_"+str(sampled_points)+".npy", gal_FeH_std)
+    else:
+        np.save(cwd+"/samples_GAMMA/gal_Mstar_"+str(sampled_points)+"_2.npy", gal_Mstar)
+        np.save(cwd+"/samples_GAMMA/gal_FeH_mean_"+str(sampled_points)+"_2.npy", gal_FeH_mean)
+        np.save(cwd+"/samples_GAMMA/gal_FeH_std_"+str(sampled_points)+"_2.npy", gal_FeH_std)

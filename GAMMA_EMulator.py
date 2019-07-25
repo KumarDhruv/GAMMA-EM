@@ -8,6 +8,10 @@ from joblib import dump
 import time
 import os
 import copy
+import random
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 #Scikit Gaussian Process functions
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -21,6 +25,7 @@ from sklearn.metrics import r2_score
 
 start = time.time()
 cwd = os.getcwd()
+scores_f = open(cwd+"/Emulator_results/Testing_scores.txt", "w+")
 
 #load in input training data
 emsp_train_dict = np.load(cwd+"/samples_GAMMA/em_sample_points200.npy") #address of set of sample parameter
@@ -47,14 +52,21 @@ for i in range(len(emsp_train_dict)):
 
 i = 0
 for i in range(len(emsp_test_dict)):
-    j = 0
+    j = 0    
     for key in emsp_test_dict[0].keys():
         emsp_test[i,j] = copy.deepcopy(emsp_test_dict[i][key])
         j += 1
 
+print(emsp_train_dict[1])
+print(emsp_train[1, :])
 print("================================")
 print("First generation of the emulator")
 print("================================")
+
+scores_f.write("================================\n")
+scores_f.write("First generation of the emulator\n")
+scores_f.write("================================\n")
+
 #Stellar mass
 sigma_train_1 = np.zeros(len(gal_Mstar_train[0])) #standard deviation of training set for the kernel
 em_Mstar_1 = [] #list of stellar mass emulator objects
@@ -71,11 +83,16 @@ for i in range(len(gal_Mstar_train[0])):
     em_Mstar_1.append(GaussianProcessRegressor(kernel=kern, n_restarts_optimizer=1))
     em_Mstar_1[i].fit(emsp_train,log_gal_Mstar_train[:,i])
     log_em_Mstar_pred_1[:,i], log_em_Mstar_pred_std_1[:,i] = em_Mstar_1[i].predict(emsp_test, return_std = True)
-    print(".", end = "")
+    scores_f.write("Emulator #"+str(i)+": "+str(em_Mstar_1[i].score(emsp_test, np.log10(gal_Mstar_test[:,i])))+"\n")
+    print(emsp_test)
+    print(log_em_Mstar_pred_1[0,i])
+    print(np.log10(gal_Mstar_test[0,i]))
+    #print(".", end = "")
 print()
-print("Stellar mass emulator scores :")
-for i in range(len(em_Mstar)):
-    print(em_Mstar[i].score(emsp_test, gal_Mstar_test, end = ", ")
+
+#for i in range(len(em_Mstar_1)):
+#    scores_f.write("Emulator #"+str(i)+": "+str(r2_score(np.log10(gal_Mstar_test[:,i]), log_em_Mstar_pred_1[:,i]))+"\n")
+scores_f.write("\n")
 '''
 #Alternatively, could use MultiOutputRegressor, but that limits the information available for model analysis
 kern = C(sigma_train_2[i]**2) * RBF() * Matern() + WhiteKernel()
@@ -104,9 +121,10 @@ for i in range(len(gal_FeH_mean_train[0])):
     em_FeH_mean_pred[:,i], em_FeH_mean_pred_std[:,i] = em_FeH_mean[i].predict(emsp_test, return_std = True)
     print(".", end = "")
 print()
-print("Metallicity emulator scores :")
 for i in range(len(em_FeH_mean)):
-    print(em_FeH_mean[i].score(emsp_test, gal_FeH_mean_test, end = ", ")
+    scores_f.write(str(em_FeH_mean[i].score(emsp_test, gal_FeH_mean_test[:,i]))+", ")
+scores_f.write("\n")
+
 '''
 #Alternate MultiOutputRegressor method
 sigma_train = np.std(gal_FeH_mean_train)
@@ -177,6 +195,7 @@ for i in range(len(emsp_test_2_dict)):
     for key in emsp_test_2_dict[0].keys():
         emsp_test_2[i,j] = copy.deepcopy(emsp_test_2_dict[i][key])
         j += 1
+    i += 1
 
 print("=================================")
 print("Second generation of the emulator")
@@ -198,9 +217,10 @@ for i in range(len(gal_Mstar_train_2[0])):
     log_em_Mstar_pred_2[:,i], log_em_Mstar_pred_std_2[:,i] = em_Mstar_2[i].predict(emsp_test_2, return_std = True)
     print(".", end="")
 print()
-print("Stellar mass emulator scores:")
-for i in range(len(em_Mstar_2)):
-    print(em_Mstar_2[i].score(emsp_test_2, gal_Mstar_test_2, end = ", ")
+#for i in range(len(em_Mstar_2)):
+#    scores_f.write(str(em_Mstar_2[i].score(emsp_test_2, gal_Mstar_test_2[:,i]))+", ")
+#scores_f.write("\n")
+
 
 #refer to first generation section for use of MultiOutputRegressor class
     
@@ -220,9 +240,10 @@ for i in range(len(gal_FeH_mean_train_2[0])):
     em_FeH_mean_pred_2[:,i], em_FeH_mean_pred_std_2[:,i] = em_FeH_mean_2[i].predict(emsp_test_2, return_std = True)
     print(".", end="")
 print()
-print("Metallicity emulator scores:")
-for i in range(len(em_FeH_mean_2)):
-    print(em_FeH_mean_2[i].score(emsp_test_2, gal_FeH_mean_test_2, end = ", ")
+#for i in range(len(em_FeH_mean_2)):
+#    scores_f.write(str(em_FeH_mean_2[i].score(emsp_test_2, gal_FeH_mean_test_2[:,i]))+", ")
+#scores_f.write("\n")
+
 
 #refer to first generation section for use of MultiOutputRegressor class
 
@@ -325,5 +346,19 @@ dump(em_FeH_mean_2, cwd+'/Emulator_results/metallicity_emulator.joblib')
 #to load the emulator from disk, use this syntax
 #stellar_mass_em = load('stellar_mass_emulator.joblib')
 #metallicity_emulator_em = load('metallicity_emulator.joblib')
+scores_f.close()
 
 print("Emulator creation and refinement total time: {:.1f}".format(time.time()-start))
+
+j = random.randint(1,10001)
+plt.errorbar(np.log10(gal_Mstar_test_2[j][:-1]), gal_FeH_mean_test_2[j][:-1], fmt='o',color ='#5B6870', label='GAMMA Sub-trees')
+plt.errorbar(np.log10(gal_Mstar_test_2[j][-1]), gal_FeH_mean_test_2[j][-1], fmt='o', color = '#B46012',label='GAMMA Host-tree')
+plt.errorbar(log_em_Mstar_pred_2[j][:-1], em_FeH_mean_pred_2[j][:-1], xerr = 1.96*log_em_Mstar_pred_std_2[j][:-1], yerr=1.96*em_FeH_mean_pred_std[j][:-1], fmt='o', color = '#6E99B4', label='Emulated Sub-trees')
+plt.errorbar(log_em_Mstar_pred_2[j][-1], em_FeH_mean_pred_2[j][-1], xerr = 1.96*log_em_Mstar_pred_std_2[j][-1], yerr=1.96*em_FeH_mean_pred_std[j][-1], fmt='o', color = '#FF9B1A', label='Emulated Host-tree')
+plt.legend(loc='lower right')
+#plt.xscale('log')
+plt.xlabel('Stellar Mass - log([M$_\odot$])', ha='center', va='center')
+plt.ylabel('Metallicity - [Fe/H]', ha='center', va='center', rotation='vertical')
+plt.title('GAMMA-EM - Second Generation')
+
+plt.savefig(cwd+"/Emulator_results/Random_emulator_comparision_sample_"+str(j)+".png")
