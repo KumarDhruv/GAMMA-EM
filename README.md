@@ -2,7 +2,7 @@
 Gaussian Process-based Emulators of the GAMMA model for Galactic Chemical Evolution
 
 # Description
-GAMMA-EM is a pipeline for comparison of the GAMMA model with observational data taken from the APOGEE survey and McConnachie 2012. It utilizes 
+GAMMA-EM is a pipeline for comparison of the GAMMA model with observational data taken from the APOGEE survey and McConnachie 2012. It utilizes Gaussian Process regression to create model emulators for GAMMA, then uses the emcee package to run Markov Chain Monte Carlo simulations to explore the parameter space.
 
 # Requirements  
 * Python 3.7
