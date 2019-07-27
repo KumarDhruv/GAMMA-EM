@@ -71,7 +71,6 @@ SSPs_in = caga.precompute_ssps()
 comm.bcast(SSPs_in)
 comm.Barrier()
 
-#BC
 # Function to gather paramaters and run GAMMA
 def run_gamma(gt, mvir_thresh, gamma_kwargs, SSPs_in):
     kwargs = caga.generate_kwargs(gt, mvir_thresh, SSPs_in=SSPs_in)
@@ -151,10 +150,7 @@ if comm.rank == 0:
         for key in var_range.keys():
             em_sample_points[i][key] = (lhd[i][key]*(var_range[key][1]))+var_range[key][0]
     #saves the sample points
-    if not os.path.isfile(cwd+"/samples_GAMMA/em_sample_points"+str(sampled_points)+".npy"):
-        np.save(cwd+"/samples_GAMMA/em_sample_points"+str(sampled_points)+".npy", em_sample_points)
-    else:
-        np.save(cwd+"/samples_GAMMA/em_sample_points"+str(sampled_points)+"_2.npy", em_sample_points)
+    np.save(cwd+"/samples_GAMMA/em_sample_points"+str(sampled_points)+"_2.npy", em_sample_points)
 else:
     #mpi4py gets upset and mishandles things if these aren't here
     lhd_temp = None
@@ -277,11 +273,6 @@ comm.Gather(mini_gal_FeH_std, gal_FeH_std)
 
 #saving sample point results
 if comm.rank == 0:
-    if not os.path.isfile(cwd+"/samples_GAMMA/gal_Mstar_"+str(sampled_points)+".npy"):
-        np.save(cwd+"/samples_GAMMA/gal_Mstar_"+str(sampled_points)+".npy", gal_Mstar)
-        np.save(cwd+"/samples_GAMMA/gal_FeH_mean_"+str(sampled_points)+".npy", gal_FeH_mean)
-        np.save(cwd+"/samples_GAMMA/gal_FeH_std_"+str(sampled_points)+".npy", gal_FeH_std)
-    else:
-        np.save(cwd+"/samples_GAMMA/gal_Mstar_"+str(sampled_points)+"_2.npy", gal_Mstar)
-        np.save(cwd+"/samples_GAMMA/gal_FeH_mean_"+str(sampled_points)+"_2.npy", gal_FeH_mean)
-        np.save(cwd+"/samples_GAMMA/gal_FeH_std_"+str(sampled_points)+"_2.npy", gal_FeH_std)
+    np.save(cwd+"/samples_GAMMA/gal_Mstar_"+str(sampled_points)+"_2.npy", gal_Mstar)
+    np.save(cwd+"/samples_GAMMA/gal_FeH_mean_"+str(sampled_points)+"_2.npy", gal_FeH_mean)
+    np.save(cwd+"/samples_GAMMA/gal_FeH_std_"+str(sampled_points)+"_2.npy", gal_FeH_std)

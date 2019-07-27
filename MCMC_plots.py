@@ -11,6 +11,7 @@ from matplotlib.ticker import MaxNLocator
 import os
 print("Imported packages")
 
+#specify walker number, step number, and import MCMC samples and likelihoods
 cwd = os.getcwd()
 ndim, nwalkers = 10, 200
 steps = 50000
@@ -23,6 +24,7 @@ print("Imported samples and likelihoods")
 
 #plt.clf()
 
+#plot variable traces
 labels=["GIR Redshift Dependency", "GIR Coefficient", "SFE Dark Matter Dependency", "SFE Coefficient", "SFT Coefficient", "SFT Redshift Depedency", "GOR Dark Matter Dependency", "GOR Coefficient", "COR Coefficient", "# of 1a SNE per Mstar"]
 
 fig, axes = plt.subplots(4, 1, sharex=True, figsize=(8, 9))
@@ -32,10 +34,11 @@ for i in range(len(axes)):
     axes[i].set_xlabel(labels[i])
 
 print("Created Variable traces")
-
 fig.tight_layout(h_pad=0.0)
 fig.savefig(cwd+"/MCMC_results/trace_"+str(name)+".png")
 plt.clf()
+
+#plot likelihood chain of first walker
 index = np.arange(0,len(likelihood[0]))
 plt.plot(index, likelihood[0])
 plt.savefig(cwd+"/MCMC_results/likelihood_"+str(name)+".png")
@@ -43,12 +46,15 @@ plt.savefig(cwd+"/MCMC_results/likelihood_"+str(name)+".png")
 print("Likelihood plots created")
 
 plt.clf()
+
+#create corner plot + pdfs
 median_sample = np.median(samples, axis=0)
 hist2d_kwargs = {"rasterized": True}
-fig = corner.corner(samples[burnin:], labels=labels, truths = value2.tolist(), truth_color='#C28E0E', **hist2d_kwargs)
-fig.savefig(cwd+"MCMC_results/triangle_pdfs_"+str(name)+".png", dpi=125)
+fig = corner.corner(samples[burnin:], labels=labels, truths = median_sample.tolist(), truth_color='#C28E0E', **hist2d_kwargs)
+fig.savefig(cwd+"/MCMC_results/triangle_pdfs_"+str(name)+".png", dpi=125)
 print("Corner Plot created")
 
+#save the median of each PDF to a file
 value_results = open(cwd+"/MCMC_results/best_fit_values_"+str(name)+".txt", "w+")
 value_results.write(str(median_sample))
 value_results.close()
