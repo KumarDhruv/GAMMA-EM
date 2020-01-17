@@ -13,4 +13,4 @@ GAMMA-EM is a pipeline for comparison of the GAMMA model with observational data
 * HPCC  
 
 # How to use
-In DOCS, please see the GAMMA-EM_MCMC-Walkthrough.ipynb notebooks for a tutorial on how to walk through these files to produce model emulators and MCMC results
+Please see the GAMMA-EM_MCMC-Walkthrough.ipynb notebooks for a tutorial on how to walk through these files to produce model emulators and MCMC results
